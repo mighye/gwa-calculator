@@ -4,6 +4,8 @@ import './App.css';
 
 function App() {
   const componentRef = useRef();
+  const listRef = useRef();
+  const prevLenRef = useRef(0);
 
   const [subjects, setSubjects] = useState(() => {
     const savedData = localStorage.getItem('my-gwa-data');
@@ -19,6 +21,18 @@ function App() {
   useEffect(() => {
     localStorage.setItem('my-gwa-data', JSON.stringify(subjects));
   }, [subjects]);
+
+  useEffect(() => {
+    // scroll to show newly added subject when the list grows
+    if (listRef.current && subjects.length > prevLenRef.current) {
+      try {
+        listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+      } catch (e) {
+        listRef.current.scrollTop = listRef.current.scrollHeight;
+      }
+    }
+    prevLenRef.current = subjects.length;
+  }, [subjects.length]);
 
   const addSubject = () => {
     const newId = subjects.length > 0 ? subjects[subjects.length - 1].id + 1 : 1;
@@ -54,6 +68,7 @@ function App() {
 
   const downloadPDF = () => {
     const element = componentRef.current;
+    const list = listRef.current;
     const options = {
       margin:       10,
       filename:     'My_GWA_Report.pdf',
@@ -61,7 +76,45 @@ function App() {
       html2canvas:  { scale: 2 },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    html2pdf().set(options).from(element).save();
+
+    // Temporarily expand scrollable list so html2pdf captures all content
+    const prevList = list ? { maxHeight: list.style.maxHeight, overflow: list.style.overflow } : null;
+    const prevElemOverflow = element ? element.style.overflow : null;
+    try {
+      if (list) {
+        list.style.maxHeight = 'none';
+        list.style.overflow = 'visible';
+      }
+      if (element) element.style.overflow = 'visible';
+
+      const result = html2pdf().set(options).from(element).save();
+      // html2pdf may or may not return a promise depending on version; handle both
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          if (list && prevList) {
+            list.style.maxHeight = prevList.maxHeight || '';
+            list.style.overflow = prevList.overflow || '';
+          }
+          if (element) element.style.overflow = prevElemOverflow || '';
+        });
+      }
+      // fallback: wait a moment then restore
+      setTimeout(() => {
+        if (list && prevList) {
+          list.style.maxHeight = prevList.maxHeight || '';
+          list.style.overflow = prevList.overflow || '';
+        }
+        if (element) element.style.overflow = prevElemOverflow || '';
+      }, 1200);
+      return result;
+    } catch (err) {
+      if (list && prevList) {
+        list.style.maxHeight = prevList.maxHeight || '';
+        list.style.overflow = prevList.overflow || '';
+      }
+      if (element) element.style.overflow = prevElemOverflow || '';
+      throw err;
+    }
   };
 
   const inputStyle = {
@@ -81,7 +134,7 @@ function App() {
       <div ref={componentRef} className="report-card">
         <h1>GWA Calculator</h1>
         
-        <div className="subject-list">
+        <div className="subject-list" ref={listRef}>
           {subjects.map((subject) => (
             /* Swapped inline style for className here */
             <div key={subject.id} className="subject-row">
